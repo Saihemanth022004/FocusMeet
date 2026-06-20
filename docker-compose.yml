@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: ankane/pgvector:v0.5.1
+    container_name: focusmeet-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: focusmeet
+      POSTGRES_PASSWORD: focusmeet_secret
+      POSTGRES_DB: focusmeet
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U focusmeet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: focusmeet-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save 20 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

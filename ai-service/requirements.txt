@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+faster-whisper
+google-generativeai
+sentence-transformers
+psycopg2-binary
+redis
+python-multipart
+websockets
+pydantic-settings
+python-dotenv

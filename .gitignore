@@ -1,0 +1,78 @@
+# ── Java / Maven ──────────────────────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+.mvn/
+!.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.properties
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.flattened-pom.xml
+
+# ── Spring Boot ────────────────────────────────────────────────────────────
+HELP.md
+spring-shell.log
+
+# ── Python / FastAPI ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.venv/
+venv/
+ENV/
+env/
+pip-selfcheck.json
+.Python
+
+# ── Node / React ───────────────────────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+*.local
+
+# ── Environment files (NEVER commit secrets) ──────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.production
+
+# ── IDE & OS ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ── Docker volumes (local dev data) ───────────────────────────────────────
+postgres_data/
+redis_data/
+
+# ── Logs ──────────────────────────────────────────────────────────────────
+*.log
+logs/
