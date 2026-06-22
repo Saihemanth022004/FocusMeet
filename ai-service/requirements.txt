@@ -9,3 +9,5 @@ python-multipart
 websockets
 pydantic-settings
 python-dotenv
+python-socketio[asyncio_client]
+aiofiles
