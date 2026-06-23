@@ -3,6 +3,7 @@ package com.focusmeet.meetings.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -35,12 +36,21 @@ public class Meeting {
     @Builder.Default
     private MeetingStatus status = MeetingStatus.SCHEDULED;
 
+    /** Full transcript text — populated when the meeting is completed. */
+    @Column(columnDefinition = "TEXT")
+    private String transcript;
+
     /** Duration in seconds — null until meeting is completed. */
-    private Long duration;
+    @Column(name = "duration_seconds")
+    private Integer durationSeconds;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at")
+    private Instant updatedAt;
 
     public enum MeetingStatus {
         SCHEDULED, LIVE, COMPLETED

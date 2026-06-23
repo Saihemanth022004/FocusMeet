@@ -25,6 +25,7 @@
     <java.version>17</java.version>
     <jjwt.version>0.12.5</jjwt.version>
     <mapstruct.version>1.5.5.Final</mapstruct.version>
+    <lombok.version>1.18.36</lombok.version>
   </properties>
 
   <modules>
@@ -64,5 +65,32 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <!-- ── Build plugins ─────────────────────────────────────────────────── -->
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <configuration>
+            <source>${java.version}</source>
+            <target>${java.version}</target>
+            <compilerArgs>
+              <!-- Required for annotation processing on JDK 23+ -->
+              <arg>-proc:full</arg>
+            </compilerArgs>
+            <annotationProcessorPaths>
+              <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+              </path>
+            </annotationProcessorPaths>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
 
 </project>

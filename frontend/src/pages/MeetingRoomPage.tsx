@@ -1,21 +1,26 @@
 /**
  * MeetingRoomPage — real-time audio transcription via Socket.IO + faster-whisper
  *
- * Flow:
- *   1. User clicks "Start Meeting"  → getUserMedia → MediaRecorder starts
+ * Persistence flow:
+ *   1. User clicks "Start Meeting"
+ *      → POST /api/meetings (title = "Meeting — {datetime}") → store meetingId
+ *      → getUserMedia → MediaRecorder starts
  *   2. Every 3 s a WebM/Opus chunk is emitted to the server as "audio_chunk"
  *   3. Server transcribes incrementally and emits "transcript_chunk" events
- *   4. User clicks "Stop Meeting"   → MediaRecorder stops, "end_meeting" emitted
- *   5. Server does a final pass and emits "meeting_complete"
+ *   4. User clicks "Stop Meeting" → MediaRecorder stops → "end_meeting" emitted
+ *   5. Server emits "meeting_complete"
+ *      → PATCH /api/meetings/{meetingId}/transcript (transcript + duration)
+ *      → navigate to /meetings/{meetingId}
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
+import { createMeeting, saveTranscript } from '../api/meetings';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type RecordingState = 'idle' | 'recording' | 'processing' | 'done';
+type RecordingState = 'idle' | 'recording' | 'processing' | 'saving' | 'done';
 
 interface TranscriptSegment {
   id: number;
@@ -31,7 +36,7 @@ const CHUNK_INTERVAL_MS = 3000; // 3-second audio chunks
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function MeetingRoomPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id: urlMeetingId } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -41,6 +46,7 @@ export default function MeetingRoomPage() {
   const [wsConnected, setWsConnected] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
   const [finalTranscript, setFinalTranscript] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const socketRef      = useRef<Socket | null>(null);
@@ -48,6 +54,8 @@ export default function MeetingRoomPage() {
   const streamRef      = useRef<MediaStream | null>(null);
   const transcriptRef  = useRef<HTMLDivElement>(null);
   const segmentCounter = useRef(0);
+  const meetingIdRef   = useRef<string | null>(urlMeetingId ?? null);
+  const startTimeRef   = useRef<number | null>(null);
 
   // ── Auto-scroll transcript ───────────────────────────────────────────────
   useEffect(() => {
@@ -76,7 +84,6 @@ export default function MeetingRoomPage() {
     socket.on('disconnect', (reason) => {
       console.warn('[Socket] Disconnected:', reason);
       setWsConnected(false);
-      // If we were recording, surface the reconnect UI
       setRecordingState((prev) =>
         prev === 'recording' || prev === 'processing' ? 'idle' : prev,
       );
@@ -93,7 +100,6 @@ export default function MeetingRoomPage() {
       if (!text) return;
 
       setSegments((prev) => {
-        // Replace the last interim segment or append
         const last = prev[prev.length - 1];
         if (last && !last.isFinal) {
           return [...prev.slice(0, -1), { ...last, text, isFinal: data.is_final }];
@@ -102,9 +108,32 @@ export default function MeetingRoomPage() {
       });
     });
 
-    socket.on('meeting_complete', (data: { text: string; message?: string }) => {
-      setFinalTranscript(data.text || data.message || '(no speech detected)');
-      setRecordingState('done');
+    socket.on('meeting_complete', async (data: { text: string; message?: string }) => {
+      const transcript = data.text || data.message || '(no speech detected)';
+      setFinalTranscript(transcript);
+      setRecordingState('saving');
+
+      // ── Persist transcript to Spring Boot ──────────────────────────────
+      const mid = meetingIdRef.current;
+      if (!mid) {
+        console.warn('[Persist] No meetingId — skipping save');
+        setRecordingState('done');
+        return;
+      }
+
+      const durationSeconds = startTimeRef.current
+        ? Math.round((Date.now() - startTimeRef.current) / 1000)
+        : 0;
+
+      try {
+        await saveTranscript(mid, transcript, durationSeconds);
+        // Navigate to the meeting detail page
+        navigate(`/meetings/${mid}`);
+      } catch (err) {
+        console.error('[Persist] Failed to save transcript:', err);
+        setSaveError('Could not save transcript. Your transcript is shown below.');
+        setRecordingState('done');
+      }
     });
 
     socket.on('error', (data: { message: string }) => {
@@ -113,7 +142,7 @@ export default function MeetingRoomPage() {
     });
 
     socketRef.current = socket;
-  }, []);
+  }, [navigate]);
 
   // Connect socket on mount
   useEffect(() => {
@@ -128,10 +157,29 @@ export default function MeetingRoomPage() {
   const startMeeting = useCallback(async () => {
     setMicError(null);
     setWsError(null);
+    setSaveError(null);
     setSegments([]);
     setFinalTranscript(null);
 
-    // 1. Request microphone
+    // 1. Create meeting record in DB (if we don't already have an ID from the URL)
+    let activeMeetingId = meetingIdRef.current;
+    if (!activeMeetingId) {
+      try {
+        const now = new Date();
+        const title = `Meeting — ${now.toLocaleDateString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric',
+        })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+        const meeting = await createMeeting(title);
+        activeMeetingId = meeting.id;
+        meetingIdRef.current = meeting.id;
+      } catch (err) {
+        console.error('[Persist] Failed to create meeting:', err);
+        setMicError('Could not create meeting. Please check your connection and try again.');
+        return;
+      }
+    }
+
+    // 2. Request microphone
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -147,32 +195,30 @@ export default function MeetingRoomPage() {
       return;
     }
 
-    // 2. Connect socket if not already connected
+    // 3. Connect socket if not already connected
     if (!socketRef.current?.connected) {
       connectSocket();
-      // give socket a moment to connect before we start streaming
       await new Promise<void>((resolve) => {
         const s = socketRef.current!;
         if (s.connected) { resolve(); return; }
         s.once('connect', () => resolve());
-        setTimeout(resolve, 2000); // fallback timeout
+        setTimeout(resolve, 2000);
       });
     }
 
-    // 3. Determine supported MIME type
+    // 4. Determine supported MIME type
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : MediaRecorder.isTypeSupported('audio/webm')
       ? 'audio/webm'
       : '';
 
-    // 4. Create MediaRecorder
+    // 5. Create MediaRecorder
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     mediaRecRef.current = recorder;
 
     recorder.ondataavailable = async (event) => {
       if (event.data.size === 0 || !socketRef.current?.connected) return;
-
       try {
         const arrayBuffer = await event.data.arrayBuffer();
         socketRef.current.emit('audio_chunk', arrayBuffer);
@@ -181,19 +227,18 @@ export default function MeetingRoomPage() {
       }
     };
 
-    recorder.onerror = (event) => {
-      console.error('[MediaRecorder] Error:', event);
+    recorder.onerror = () => {
       setWsError('MediaRecorder error. Recording has stopped.');
       stopMeeting();
     };
 
     recorder.onstop = () => {
-      // Release mic track
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
 
-    // 5. Start recording with 3-second timeslice
+    // 6. Start recording
+    startTimeRef.current = Date.now();
     recorder.start(CHUNK_INTERVAL_MS);
     setRecordingState('recording');
   }, [connectSocket]);
@@ -202,15 +247,13 @@ export default function MeetingRoomPage() {
   const stopMeeting = useCallback(() => {
     const recorder = mediaRecRef.current;
     if (recorder && recorder.state !== 'inactive') {
-      recorder.stop(); // triggers onstop above
+      recorder.stop();
     }
     mediaRecRef.current = null;
 
     setRecordingState('processing');
-
-    // Tell the server to do its final transcription pass
-    socketRef.current?.emit('end_meeting', { meetingId: id });
-  }, [id]);
+    socketRef.current?.emit('end_meeting', { meetingId: meetingIdRef.current });
+  }, []);
 
   // ── Reconnect handler ────────────────────────────────────────────────────
   const handleReconnect = useCallback(() => {
@@ -222,6 +265,7 @@ export default function MeetingRoomPage() {
   const isIdle       = recordingState === 'idle';
   const isRecording  = recordingState === 'recording';
   const isProcessing = recordingState === 'processing';
+  const isSaving     = recordingState === 'saving';
   const isDone       = recordingState === 'done';
 
   const finalSegments = segments.filter((s) => s.isFinal);
@@ -247,14 +291,14 @@ export default function MeetingRoomPage() {
             to="/"
             style={{ color: '#6b7280', display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.875rem' }}
           >
-            ← Back
+            ← Dashboard
           </Link>
           <span style={{ color: '#3d4066' }}>|</span>
           <span className="font-semibold" style={{ color: '#e2e4ef' }}>
             Meeting Room
-            {id && (
+            {meetingIdRef.current && (
               <span style={{ color: '#6b7280', fontWeight: 400, fontSize: '0.85rem' }}>
-                {' '}— #{id}
+                {' '}— #{meetingIdRef.current.split('-')[0]}
               </span>
             )}
           </span>
@@ -308,6 +352,31 @@ export default function MeetingRoomPage() {
           </div>
         )}
 
+        {/* ── Save error ────────────────────────────────────────────────── */}
+        {saveError && (
+          <div
+            className="animate-fade-in"
+            style={{
+              background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.25)',
+              borderRadius: '0.75rem',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}
+          >
+            <span style={{ fontSize: '1.25rem', flexShrink: 0 }}>💾</span>
+            <p style={{ color: '#fca5a5', fontSize: '0.9rem', flex: 1 }}>{saveError}</p>
+            <button
+              onClick={() => setSaveError(null)}
+              style={{ color: '#f87171', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* ── WebSocket error + reconnect ───────────────────────────────── */}
         {wsError && (
           <div
@@ -349,6 +418,7 @@ export default function MeetingRoomPage() {
                 {isIdle       && 'Click "Start Meeting" to begin capturing audio.'}
                 {isRecording  && 'Recording in progress — speak clearly into your microphone.'}
                 {isProcessing && 'Processing final transcript…'}
+                {isSaving     && 'Saving transcript to your account…'}
                 {isDone       && 'Meeting complete. Your full transcript is ready.'}
               </p>
             </div>
@@ -393,8 +463,8 @@ export default function MeetingRoomPage() {
                 </button>
               )}
 
-              {/* Processing spinner */}
-              {isProcessing && (
+              {/* Processing / saving spinner */}
+              {(isProcessing || isSaving) && (
                 <div className="flex items-center gap-2" style={{ color: '#9ca3af', fontSize: '0.9rem' }}>
                   <svg
                     width="18" height="18"
@@ -406,7 +476,7 @@ export default function MeetingRoomPage() {
                   >
                     <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
                   </svg>
-                  Processing…
+                  {isSaving ? 'Saving…' : 'Processing…'}
                 </div>
               )}
             </div>
@@ -437,7 +507,7 @@ export default function MeetingRoomPage() {
           )}
         </div>
 
-        {/* ── Final transcript card (shown after meeting_complete) ─────── */}
+        {/* ── Final transcript card (shown after meeting_complete + save error) ── */}
         {isDone && finalTranscript !== null && (
           <div
             className="glass-card animate-fade-in"
@@ -455,14 +525,16 @@ export default function MeetingRoomPage() {
               <h2 style={{ fontSize: '0.9rem', color: '#a5b4fc', letterSpacing: '0.05em' }}>
                 ✅ FINAL TRANSCRIPT
               </h2>
-              <button
-                id="end-meeting-btn"
-                className="btn-primary"
-                onClick={() => navigate(`/meetings/${id}`)}
-                style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
-              >
-                View Full Summary →
-              </button>
+              {meetingIdRef.current && (
+                <button
+                  id="view-detail-btn"
+                  className="btn-primary"
+                  onClick={() => navigate(`/meetings/${meetingIdRef.current}`)}
+                  style={{ fontSize: '0.85rem', padding: '0.4rem 1rem' }}
+                >
+                  View Full Summary →
+                </button>
+              )}
             </div>
             <div
               style={{

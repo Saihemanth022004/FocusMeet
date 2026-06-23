@@ -30,6 +30,17 @@ export default function App() {
             </RequireAuth>
           }
         />
+
+        {/* Standalone room — meeting is created on Start click */}
+        <Route
+          path="/meeting/room"
+          element={
+            <RequireAuth>
+              <MeetingRoomPage />
+            </RequireAuth>
+          }
+        />
+
         <Route
           path="/meetings/:id"
           element={
