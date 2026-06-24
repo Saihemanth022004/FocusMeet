@@ -25,6 +25,26 @@ export interface MeetingDetail {
   updatedAt: string | null;
 }
 
+export type ActionItemStatus = 'PENDING' | 'DONE';
+
+export interface ActionItem {
+  id: string;
+  meetingId: string;
+  text: string;
+  owner: string;
+  dueDate: string | null; // "YYYY-MM-DD"
+  status: ActionItemStatus;
+}
+
+export interface SummaryResult {
+  meetingId: string;
+  summary: string;
+  decisions: string[];
+  topics: string[];
+  actionItems: Array<{ text: string; owner: string; dueDate: string | null }>;
+  savedActionItems: ActionItem[];
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 /** POST /api/meetings — create a new meeting, returns the full meeting entity */
@@ -58,5 +78,39 @@ export async function listMeetings(): Promise<MeetingListItem[]> {
 /** GET /api/meetings/{id} — fetch full meeting detail including transcript */
 export async function getMeeting(id: string): Promise<MeetingDetail> {
   const res = await api.get<{ data: MeetingDetail }>(`/api/meetings/${id}`);
+  return res.data.data;
+}
+
+/**
+ * POST /api/meetings/{id}/summarize
+ * Calls FastAPI via Spring Boot, persists AI results, returns structured summary.
+ */
+export async function generateSummary(meetingId: string): Promise<SummaryResult> {
+  const res = await api.post<{ data: SummaryResult }>(
+    `/api/meetings/${meetingId}/summarize`,
+  );
+  return res.data.data;
+}
+
+/** GET /api/meetings/{id}/action-items — list action items for a meeting */
+export async function getActionItems(meetingId: string): Promise<ActionItem[]> {
+  const res = await api.get<{ data: ActionItem[] }>(
+    `/api/meetings/${meetingId}/action-items`,
+  );
+  return res.data.data ?? [];
+}
+
+/**
+ * PATCH /api/action-items/{id}/status
+ * Toggle action item between PENDING and DONE.
+ */
+export async function updateActionItemStatus(
+  itemId: string,
+  status: ActionItemStatus,
+): Promise<ActionItem> {
+  const res = await api.patch<{ data: ActionItem }>(
+    `/api/action-items/${itemId}/status`,
+    { status },
+  );
   return res.data.data;
 }

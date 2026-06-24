@@ -4,6 +4,7 @@ import com.focusmeet.common.dto.ApiResponse;
 import com.focusmeet.meetings.dto.CreateMeetingRequest;
 import com.focusmeet.meetings.dto.MeetingListResponse;
 import com.focusmeet.meetings.dto.SaveTranscriptRequest;
+import com.focusmeet.meetings.dto.SummarizeResponse;
 import com.focusmeet.meetings.entity.Meeting;
 import com.focusmeet.meetings.repository.MeetingRepository;
 import com.focusmeet.meetings.service.MeetingService;
@@ -86,5 +87,15 @@ public class MeetingController {
                 id, request.getTranscript(), request.getDurationSeconds());
         return ResponseEntity.ok(ApiResponse.ok("Transcript saved", saved));
     }
-}
+    // ── Summarize meeting ──────────────────────────────────────────────────
 
+    /**
+     * POST /api/meetings/{id}/summarize
+     * Calls FastAPI to generate a summary, persists results, returns structured output.
+     */
+    @PostMapping("/{id}/summarize")
+    public ResponseEntity<ApiResponse<SummarizeResponse>> summarizeMeeting(@PathVariable UUID id) {
+        SummarizeResponse result = meetingService.summarizeMeeting(id);
+        return ResponseEntity.ok(ApiResponse.ok("Meeting summarized", result));
+    }
+}

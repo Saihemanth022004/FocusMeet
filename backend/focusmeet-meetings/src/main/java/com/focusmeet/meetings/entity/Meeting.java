@@ -44,6 +44,20 @@ public class Meeting {
     @Column(name = "duration_seconds")
     private Integer durationSeconds;
 
+    // ── AI-generated fields (populated after /summarize) ──────────────────────
+
+    /** AI-generated summary paragraph. */
+    @Column(columnDefinition = "TEXT")
+    private String summary;
+
+    /** JSON array of decision strings, stored as TEXT. e.g. ["decision1","decision2"] */
+    @Column(columnDefinition = "TEXT")
+    private String decisions;
+
+    /** JSON array of topic strings, stored as TEXT. e.g. ["topic1","topic2"] */
+    @Column(columnDefinition = "TEXT")
+    private String topics;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
